@@ -11,12 +11,15 @@
 package main
 
 import (
+	"encoding/csv"
 	"flag"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/sunnyregion/color"
 	"github.com/sunnyregion/sunnyini"
+	"github.com/sunnyregion/util"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )
@@ -45,6 +48,7 @@ type ElemeterMgo struct {
 	SubType   string    `bson:"sub_type"`
 	Value     string    `bson:"value"`
 	Flag      int       `bson:"flag"`
+	AiImage   string    `bson:"ai_image"`
 	IP        string    `bson:"ipaddress"`
 	Pubtime   time.Time `bson:"pubtime"`
 }
@@ -131,14 +135,29 @@ func (this *LicenseStuct) MeterDataToCvs() {
 	if err != nil {
 		panic(err)
 	}
-	color.Println(len(result))
+	//	color.Println(len(result))
+	var data [][]string
 	for _, value := range result {
-		if value.ID.DeviceId == `g121` {
-			color.Println(value.ID.DeviceId, value)
-			break
-		}
+		//		if value.ID.DeviceId == `g121` {
+		//			color.Println(value.ID.DeviceId, value)
+		//			break
+		//		}
+		d := []string{value.ID.DeviceId, value.Value, value.Type, value.SubType, value.ImageFile, value.AiImage, value.IP, util.SunnyTimeToStr(value.Pubtime, "time")}
+		data = append(data, d)
 	}
-	//color.Println(result, err)
+
+	f, err := os.Create("test.csv") //创建文件
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	f.WriteString("\xEF\xBB\xBF") // 写入UTF-8 BOM
+
+	w := csv.NewWriter(f) //创建一个新的写入文件流
+	w.WriteAll(data)      //写入数据
+	w.Flush()
+	color.Println("cvs over!")
 }
 
 //初始化
