@@ -18,11 +18,12 @@ import (
 	"github.com/sunnyregion/color"
 	"github.com/sunnyregion/sunnyini"
 	"gopkg.in/mgo.v2"
-	_ "gopkg.in/mgo.v2/bson"
+	"gopkg.in/mgo.v2/bson"
 )
 
 var (
 	sumFlag = flag.Bool("sum", false, "是否统计有多少块电表在统计。")
+	cvsFlag = flag.Bool("cvs", false, "把最后一块电表的数据输出到cvs。")
 )
 
 //对象化
@@ -31,10 +32,15 @@ type LicenseStuct struct {
 	MongoDB *mgo.Database
 }
 
+//电表号的struct
+type IDtype struct {
+	DeviceId string `bson:"device_id"`
+}
+
 //数据库结构
 type ElemeterMgo struct {
 	ImageFile string    `bson:"image_file"`
-	DeviceId  string    `bson:"device_id"`
+	ID        IDtype    `bson:"_id"`
 	Type      string    `bson:"type"`
 	SubType   string    `bson:"sub_type"`
 	Value     string    `bson:"value"`
@@ -49,7 +55,7 @@ var (
 	dbusername = ""         //用户名
 	dbpassword = ""         //密码
 	database   = "elemeter" //表名
-	collection = ""
+	collection = "elemeter"
 )
 
 func NewLicenseStuct() *LicenseStuct {
@@ -94,21 +100,48 @@ func NewLicenseStuct() *LicenseStuct {
 func (this *LicenseStuct) SumLicense() {
 	color := color.New(color.FgHiGreen).Add(color.BgBlack)
 	c := this.MongoDB.C(collection)
-	//	_ = c
-	//	o1 := bson.M{"_id": bson.M{"device_id": "$device_id"}}
-
-	//	o2 := bson.M{"pubtime": bson.M{"$last": "$pubtime"}}
-	//	o3 := bson.M{"$group": []bson.M{o1, o2}}
-	//	pipe := c.Pipe([]bson.M{o3})
-	//	var result []bson.M{}
-	//	_ = pipe.All(&result)
-	//	fmt.Println(result)
 	var results []interface{}
-	//c.Find(nil).Select(bson.M{"device_id": 1, "pubtime": 1}).Distinct("device_id", &results)
 	c.Find(nil).Distinct("device_id", &results)
 	color.Println("电表数量：", len(results))
 	return
 }
+
+// 电表最后一条数据输出到cvs
+func (this *LicenseStuct) MeterDataToCvs() {
+	color := color.New(color.FgHiGreen).Add(color.BgBlack)
+	c := this.MongoDB.C(collection)
+	pipe := c.Pipe([]bson.M{
+		{
+			"$group": bson.M{
+				"_id":        bson.M{"device_id": "$device_id"},
+				"pubtime":    bson.M{"$last": "$pubtime"},
+				"image_file": bson.M{"$last": "$image_file"},
+				"ai_image":   bson.M{"$last": "$ai_image"},
+				`type`:       bson.M{"$last": "$type"},
+				"sub_type":   bson.M{"$last": "$sub_type"},
+				"value":      bson.M{"$last": "$value"},
+				"flag":       bson.M{"$last": "$flag"},
+				"ipaddress":  bson.M{"$last": "$ipaddress"},
+			},
+		},
+		{"$sort": bson.M{"pubtime": 1}},
+	})
+	var result = []ElemeterMgo{}
+	err := pipe.All(&result)
+	if err != nil {
+		panic(err)
+	}
+	color.Println(len(result))
+	for _, value := range result {
+		if value.ID.DeviceId == `g121` {
+			color.Println(value.ID.DeviceId, value)
+			break
+		}
+	}
+	//color.Println(result, err)
+}
+
+//初始化
 func init() {
 	c := color.New(color.FgHiMagenta).Add(color.BgBlack)
 	c.Println(`
@@ -136,6 +169,15 @@ func main() {
 		l := NewLicenseStuct()
 		if l.err == nil {
 			l.SumLicense()
+		} else {
+			c.Println(l.err.Error())
+		}
+	}
+
+	if *cvsFlag {
+		l := NewLicenseStuct()
+		if l.err == nil {
+			l.MeterDataToCvs()
 		} else {
 			c.Println(l.err.Error())
 		}
