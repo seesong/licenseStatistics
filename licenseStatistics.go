@@ -11,9 +11,13 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/csv"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"net"
 	"os"
 	"time"
 
@@ -25,9 +29,33 @@ import (
 )
 
 var (
-	sumFlag = flag.Bool("sum", false, "是否统计有多少块电表在统计。")
-	cvsFlag = flag.Bool("cvs", false, "把最后一块电表的数据输出到cvs。")
+	sumFlag          = flag.Bool("sum", false, "Use -sum 统计已经使用电表数量。")
+	csvFlag          = flag.Bool("csv", false, "Use -csv 把每个电表最后一条记录输出到csv，不加file参数，默认文件名为当天日期。")
+	csv_file *string = flag.String("file", util.SunnyTimeNow("day")+`.csv`, "Use -file <output file>")
 )
+
+const rootPEM = `-----BEGIN CERTIFICATE-----
+MIIDmzCCAoOgAwIBAgIJAJRA9QxwGlXPMA0GCSqGSIb3DQEBCwUAMGQxCzAJBgNV
+BAMMAkNOMQ8wDQYDVQQIDAZzaGFueGkxDTALBgNVBAcMBHhpYW4xDzANBgNVBAoM
+Bmh1YXdlaTEMMAoGA1UECwwDUkRTMRYwFAYDVQQDDA1jYS5odWF3ZWkuY29tMB4X
+DTE2MTIyMzA2NTQxMloXDTQ2MTIxNjA2NTQxMlowZDELMAkGA1UEAwwCQ04xDzAN
+BgNVBAgMBnNoYW54aTENMAsGA1UEBwwEeGlhbjEPMA0GA1UECgwGaHVhd2VpMQww
+CgYDVQQLDANSRFMxFjAUBgNVBAMMDWNhLmh1YXdlaS5jb20wggEiMA0GCSqGSIb3
+DQEBAQUAA4IBDwAwggEKAoIBAQC5Ziz8T0DnoUYqqgLw5tDzw6+tcgpWrRQVFBy5
+82do9jUrqy88nddheKpvJnkF4bJyPjBCAww1wplLDPCC9guwjOJZ7p1c8nZ/rXdL
+5rXya3/fNl6h/JSpRW1laGUM5IjKPr/9bcjo9dlpr48cxl7P8sgWHfIlt7n0vuf0
+qlQ+m4gTQrXAsGmcKyQPX1N04JP+4tkC4+lXtnChz9ncQKEMvTAq6EBrysZIDPDE
+4PCkHSbTxUR0634BIxpxi3au12+P/AJJ/okSM/Aca2pDJuUuDJWkvnEfBqY3A2z+
+Y/HaIA9xa8g+9yjh3EbvjYR84Fd2P3FFMMIWana2GxNtrnlNAgMBAAGjUDBOMB0G
+A1UdDgQWBBRCUnkNIiaOaxRaQc+wgzNL9ZUD1DAfBgNVHSMEGDAWgBRCUnkNIiaO
+axRaQc+wgzNL9ZUD1DAMBgNVHRMEBTADAQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAm
+5YKFw25X2piJB2H8V2HdMvzUZo1aZkiQLEnGB0+VZKfKwJYJAAdAqfge2e/TmmDq
+m6FMjdUXtviOQtdXYgiRxT3AVbF5coBiLVR1imUGxzc3kUtf0fjBHJ2Q9HKZwryS
+ybCnRD6eTC3vD3wOzPb/bljDMo5e78Qsq1WD/Q/zaTBAdWyHCpQ/39ca9a1YJ4jD
+hE0tecslhZlJUqup4SLYT8IJMea/JX418B8/jx4BQ+u02SOfSju1o0JgxOmuCPkJ
+u2+HAwIjkDM5Hl02cO5aFLAyyl7N7cyz6gElv18ULKKYKllaMziOCP6iY6vkyrNU
+RoOhR5k2fuJVS62O8Z/j
+-----END CERTIFICATE-----`
 
 //对象化
 type LicenseStuct struct {
@@ -54,15 +82,18 @@ type ElemeterMgo struct {
 }
 
 var (
-	dbhostsip  = "127.0.0.1" //IP地址
-	port       = "27017"
-	dbusername = ""         //用户名
-	dbpassword = ""         //密码
-	database   = "elemeter" //表名
-	collection = "elemeter"
+	dbhostsip    = "127.0.0.1" //IP地址
+	port         = "27017"
+	dbusername   = ""         //用户名
+	dbpassword   = ""         //密码
+	database     = "elemeter" //表名
+	collection   = "elemeter"
+	mongodbStyle = "normal"
+	crtfile      = "/root/ca.crt"
+	url          = `mongodb://`
 )
 
-func NewLicenseStuct() *LicenseStuct {
+func NewLicenseStuct() (result *LicenseStuct) {
 
 	f := sunnyini.NewIniFile()
 	f.Readfile("config.ini")
@@ -74,29 +105,70 @@ func NewLicenseStuct() *LicenseStuct {
 		dbpassword = v[3]["dbpassword"] //密码
 		database = v[4]["dbname"]       //表名
 		collection = v[5]["collection"]
+		mongodbStyle = v[6]["mongodbStyle"]
+		crtfile = v[7]["crtfile"]
+		url = url + v[8]["url"]
 	} else {
 		fmt.Println(describ)
 	}
-	Host := []string{
-		dbhostsip + ":" + port,
-		// replica set addrs...
+
+	if mongodbStyle == `ssl` {
+		mogourl := url
+		roots := x509.NewCertPool()
+		if ca, err := ioutil.ReadFile(crtfile); err == nil {
+			roots.AppendCertsFromPEM(ca)
+		} else {
+			ok := roots.AppendCertsFromPEM([]byte(rootPEM))
+			if !ok {
+				panic("failed to parse root certificate")
+			}
+		}
+		tlsConfig := &tls.Config{
+			RootCAs:            roots,
+			InsecureSkipVerify: true,
+		}
+
+		dialInfo, err := mgo.ParseURL(mogourl)
+		if err != nil {
+			fmt.Println(err)
+			panic(err)
+		}
+		dialInfo.DialServer = func(addr *mgo.ServerAddr) (net.Conn, error) {
+			conn, err := tls.Dial("tcp", addr.String(), tlsConfig)
+			if err != nil {
+				fmt.Println(err)
+			}
+			return conn, err
+		}
+		session, err := mgo.DialWithInfo(dialInfo)
+		if err != nil {
+			result := &LicenseStuct{err: err, MongoDB: nil}
+			return result
+		}
+		result = &LicenseStuct{err: nil, MongoDB: session.DB(database)}
+	} else {
+		Host := []string{
+			dbhostsip + ":" + port,
+			// replica set addrs...
+		}
+
+		session, err := mgo.DialWithInfo(&mgo.DialInfo{
+			Addrs:    Host,
+			Timeout:  3 * time.Second, //10秒连接不到数据库
+			Username: dbusername,
+			Password: dbpassword,
+			// Database: Database,
+			// DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
+			// 	return tls.Dial("tcp", addr.String(), &tls.Config{})
+			// },
+		})
+		if err != nil {
+			result := &LicenseStuct{err: err, MongoDB: nil}
+			return result
+		}
+		result = &LicenseStuct{err: nil, MongoDB: session.DB(database)}
 	}
 
-	session, err := mgo.DialWithInfo(&mgo.DialInfo{
-		Addrs:    Host,
-		Timeout:  3 * time.Second, //10秒连接不到数据库
-		Username: dbusername,
-		Password: dbpassword,
-		// Database: Database,
-		// DialServer: func(addr *mgo.ServerAddr) (net.Conn, error) {
-		// 	return tls.Dial("tcp", addr.String(), &tls.Config{})
-		// },
-	})
-	if err != nil {
-		result := &LicenseStuct{err: err, MongoDB: nil}
-		return result
-	}
-	result := &LicenseStuct{err: nil, MongoDB: session.DB(database)}
 	return result
 }
 
@@ -110,8 +182,8 @@ func (this *LicenseStuct) SumLicense() {
 	return
 }
 
-// 电表最后一条数据输出到cvs
-func (this *LicenseStuct) MeterDataToCvs() {
+// 电表最后一条数据输出到csv
+func (this *LicenseStuct) MeterDataToCsv() {
 	color := color.New(color.FgHiGreen).Add(color.BgBlack)
 	c := this.MongoDB.C(collection)
 	pipe := c.Pipe([]bson.M{
@@ -146,7 +218,7 @@ func (this *LicenseStuct) MeterDataToCvs() {
 		data = append(data, d)
 	}
 
-	f, err := os.Create("test.csv") //创建文件
+	f, err := os.Create(*csv_file) //创建文件
 	if err != nil {
 		panic(err)
 	}
@@ -157,7 +229,7 @@ func (this *LicenseStuct) MeterDataToCvs() {
 	w := csv.NewWriter(f) //创建一个新的写入文件流
 	w.WriteAll(data)      //写入数据
 	w.Flush()
-	color.Println("cvs over!")
+	color.Println("csv over!")
 }
 
 //初始化
@@ -184,7 +256,7 @@ func sumLicense() (result int) {
 //主程序
 func main() {
 	c := color.New(color.FgHiMagenta).Add(color.BgBlack)
-	if *sumFlag {
+	if *sumFlag || len(os.Args) == 1 {
 		l := NewLicenseStuct()
 		if l.err == nil {
 			l.SumLicense()
@@ -193,13 +265,12 @@ func main() {
 		}
 	}
 
-	if *cvsFlag {
+	if *csvFlag {
 		l := NewLicenseStuct()
 		if l.err == nil {
-			l.MeterDataToCvs()
+			l.MeterDataToCsv()
 		} else {
 			c.Println(l.err.Error())
 		}
 	}
-
 }
