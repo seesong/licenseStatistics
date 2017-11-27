@@ -70,15 +70,15 @@ type IDtype struct {
 
 //数据库结构
 type ElemeterMgo struct {
-	ImageFile string    `bson:"image_file"`
-	ID        IDtype    `bson:"_id"`
-	Type      string    `bson:"type"`
-	SubType   string    `bson:"sub_type"`
-	Value     string    `bson:"value"`
-	Flag      int       `bson:"flag"`
-	AiImage   string    `bson:"ai_image"`
-	IP        string    `bson:"ipaddress"`
-	Pubtime   time.Time `bson:"pubtime"`
+	ImageFile string `bson:"image_file"`
+	ID        IDtype `bson:"_id"`
+	Type      string `bson:"type"`
+	//SubType   string    `bson:"sub_type"`
+	Value   string    `bson:"value"`
+	Flag    int       `bson:"flag"`
+	AiImage string    `bson:"ai_image"`
+	IP      string    `bson:"ipaddress"`
+	Pubtime time.Time `bson:"pubtime"`
 }
 
 var (
@@ -194,7 +194,6 @@ func (this *LicenseStuct) MeterDataToCsv() {
 				"image_file": bson.M{"$last": "$image_file"},
 				"ai_image":   bson.M{"$last": "$ai_image"},
 				`type`:       bson.M{"$last": "$type"},
-				"sub_type":   bson.M{"$last": "$sub_type"},
 				"value":      bson.M{"$last": "$value"},
 				"flag":       bson.M{"$last": "$flag"},
 				"ipaddress":  bson.M{"$last": "$ipaddress"},
@@ -202,6 +201,8 @@ func (this *LicenseStuct) MeterDataToCsv() {
 		},
 		{"$sort": bson.M{"pubtime": 1}},
 	})
+
+	//"sub_type":   bson.M{"$last": "$sub_type"},
 	var result = []ElemeterMgo{}
 	err := pipe.All(&result)
 	if err != nil {
@@ -209,13 +210,13 @@ func (this *LicenseStuct) MeterDataToCsv() {
 	}
 	//	color.Println(len(result))
 	var data [][]string
-	data = append(data, []string{"电表ID", "电表度数", "电表类型", "电表子类型", "web服务器保存的图片", "GPU服务器保存的图片", "访问IP", "访问时间"})
+	data = append(data, []string{"电表ID", "电表度数", "电表类型", "web服务器保存的图片", "GPU服务器保存的图片", "访问IP", "访问时间"})
 	for _, value := range result {
 		//		if value.ID.DeviceId == `g121` {
 		//			color.Println(value.ID.DeviceId, value)
 		//			break
 		//		}
-		d := []string{value.ID.DeviceId, value.Value, value.Type, value.SubType, value.ImageFile, value.AiImage, value.IP, util.SunnyTimeToStr(value.Pubtime, "time")}
+		d := []string{value.ID.DeviceId, value.Value, value.Type, value.ImageFile, value.AiImage, value.IP, util.SunnyTimeToStr(value.Pubtime, "time")}
 		data = append(data, d)
 	}
 
@@ -237,12 +238,12 @@ func (this *LicenseStuct) MeterDataToCsv() {
 func init() {
 	c := color.New(color.FgHiMagenta).Add(color.BgBlack)
 	c.Println(`
- _      _                                 _____  _           _    _       _    _            
-| |    (_)                               /  ___|| |         | |  (_)     | |  (_)           
-| |     _   ___   ___  _ __   ___   ___  \ '--. | |_   __ _ | |_  _  ___ | |_  _   ___  ___ 
-| |    | | / __| / _ \| '_ \ / __| / _ \  '--. \| __| / _' || __|| |/ __|| __|| | / __|/ __|
-| |____| || (__ |  __/| | | |\__ \|  __/ /\__/ /| |_ | (_| || |_ | |\__ \| |_ | || (__ \__ \
-\_____/|_| \___| \___||_| |_||___/ \___| \____/  \__| \__,_| \__||_||___/ \__||_| \___||___/ V0.1.2
+ _      _                                 _____  _                     
+| |    (_)                               /  ___|| |                   
+| |     _   ___   ___  _ __   ___   ___  \ '--. | |_   __ _  
+| |    | | / __| / _ \| '_ \ / __| / _ \  '--. \| __| / _' |
+| |____| || (__ |  __/| | | |\__ \|  __/ /\__/ /| |_ | (_| |
+\_____/|_| \___| \___||_| |_||___/ \___| \____/  \__| \__,_|  V0.1.3
                                                                                             
 	`)
 	flag.Parse()
