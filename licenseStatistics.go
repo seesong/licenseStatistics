@@ -19,6 +19,8 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/sunnyregion/color"
@@ -91,6 +93,7 @@ var (
 	mongodbStyle = "normal"
 	crtfile      = "/root/ca.crt"
 	url          = `mongodb://`
+	timeout      = 3
 )
 
 func NewLicenseStuct() (result *LicenseStuct) {
@@ -108,6 +111,7 @@ func NewLicenseStuct() (result *LicenseStuct) {
 		mongodbStyle = v[6]["mongodbStyle"]
 		crtfile = v[7]["crtfile"]
 		url = url + v[8]["url"]
+		timeout, _ = strconv.Atoi(v[9]["timeout"])
 	} else {
 		fmt.Println(describ)
 	}
@@ -147,14 +151,18 @@ func NewLicenseStuct() (result *LicenseStuct) {
 		}
 		result = &LicenseStuct{err: nil, MongoDB: session.DB(database)}
 	} else {
-		Host := []string{
-			dbhostsip + ":" + port,
-			// replica set addrs...
-		}
+		dbhostsip = strings.Replace(dbhostsip, "**", port, -1)
+		//		fmt.Println(dbhostsip)
+		Host := strings.Split(dbhostsip, `|`)
+		//		Host := []string{
+		//			dbhostsip + ":" + port,
+		//			// replica set addrs...
+		//		}
+		//		fmt.Println(Host)
 
 		session, err := mgo.DialWithInfo(&mgo.DialInfo{
 			Addrs:    Host,
-			Timeout:  3 * time.Second, //10秒连接不到数据库
+			Timeout:  time.Duration(timeout) * time.Second, //10秒连接不到数据库
 			Username: dbusername,
 			Password: dbpassword,
 			// Database: Database,
