@@ -208,7 +208,7 @@ func (this *LicenseStuct) MeterDataToCsv() {
 			},
 		},
 		{"$sort": bson.M{"pubtime": 1}},
-	})
+	}).AllowDiskUse()
 
 	//"sub_type":   bson.M{"$last": "$sub_type"},
 	var result = []ElemeterMgo{}
